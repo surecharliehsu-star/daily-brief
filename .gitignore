@@ -1,0 +1,14 @@
+*
+*/
+!.gitignore
+!outputs/
+outputs/*
+!outputs/*/
+!outputs/*/brief.html
+!outputs/*/brief.pdf
+!src/
+!src/daily_papers/
+!src/daily_papers/*.py
+!src/daily_papers/crawlers/
+!src/daily_papers/crawlers/*.py
+!requirements.txt

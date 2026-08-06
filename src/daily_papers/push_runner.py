@@ -6,7 +6,7 @@ Runs: fetch → translate → classify → generate HTML → git push → send F
 import json
 import subprocess
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .filter import get_ai_config, _load_config
@@ -16,7 +16,7 @@ from .push import generate_push_text
 from .html_brief import generate_html_brief, generate_pdf, _load_papers
 from .docx import generate_docx
 from .validator import validate_papers
-from .feishu import send_feishu
+from .feishu import send_feishu_card
 from .crawlers import (
     BISCrawler, NBERCrawler, FedCrawler, ECDCrawler, BOECrawler,
     BOCCrawler, ResHubCrawler, WorldBankCrawler, FDICCrawler,
@@ -44,9 +44,75 @@ def _fetch_all() -> list[dict]:
         try:
             papers = c.fetch_papers()
             all_papers.extend(p.to_dict() for p in papers)
-        except Exception:
-            pass
+            print(f"  [fetch] {c.source_name}: {len(papers)} papers")
+        except Exception as e:
+            print(f"  [WARN] {c.source_name} fetch failed: {e}")
     return all_papers
+
+
+def _normalize_missing_reason(papers: list[dict]) -> list[dict]:
+    for p in papers:
+        if (p.get("abstract") or "").strip():
+            p.pop("abstract_missing_reason", None)
+        elif not p.get("abstract_missing_reason"):
+            p["abstract_missing_reason"] = "无英文摘要"
+    return papers
+
+
+def _filter_recent(papers: list[dict], days: int = 30) -> list[dict]:
+    now = datetime.now()
+    cutoff = now - timedelta(days=days)
+    kept = []
+    for p in papers:
+        pub = p.get("published", "")
+        if not pub:
+            kept.append(p)
+            continue
+        try:
+            dt = datetime.fromisoformat(pub) if "T" in pub else datetime.strptime(pub[:10], "%Y-%m-%d")
+        except (ValueError, IndexError):
+            kept.append(p)
+            continue
+        if dt >= cutoff:
+            kept.append(p)
+    return kept
+
+
+def _load_previous_results() -> list[dict]:
+    previous = []
+    for d in sorted(OUTPUT_DIR.iterdir(), reverse=True):
+        if not d.is_dir():
+            continue
+        for fname in ("papers.json", "filtered.json"):
+            fp = d / fname
+            if fp.exists():
+                try:
+                    previous.extend(json.loads(fp.read_text(encoding="utf-8")))
+                except Exception:
+                    pass
+    return previous
+
+
+def _merge_cached_results(new_papers: list[dict], previous: list[dict]) -> list[dict]:
+    cache = {}
+    for p in previous:
+        key = p.get("url") or p.get("pdf_url") or p.get("title", "")
+        if key:
+            cache[key] = p
+
+    results = list(new_papers)
+    merged = 0
+    for p in results:
+        key = p.get("url") or p.get("pdf_url") or p.get("title", "")
+        cached = cache.get(key)
+        if cached:
+            for field in ("title_zh", "is_monetary", "abstract_zh", "abstract_missing_reason"):
+                if field in cached and cached[field]:
+                    p[field] = cached[field]
+                    merged += 1
+    if merged:
+        print(f"  Merged cached results: {merged} fields")
+    return results
 
 
 def _save_papers(data: list[dict]) -> Path:
@@ -138,8 +204,18 @@ def run_daily_push() -> dict:
 
     print(f"[{datetime.now().isoformat()}] Fetching papers...")
     papers = _fetch_all()
+    fetch_days = push_cfg.get("fetch_days", 30)
+    papers = _filter_recent(papers, days=fetch_days)
+    papers = _normalize_missing_reason(papers)
     result["total_papers"] = len(papers)
-    print(f"  Fetched {len(papers)} papers")
+    print(f"  Fetched {len(papers)} papers (within {fetch_days} days)")
+
+    print("  Merging cached AI results...")
+    previous = _load_previous_results()
+    papers = _merge_cached_results(papers, previous)
+    papers = _normalize_missing_reason(papers)
+    fresh = sum(1 for p in papers if not p.get("title_zh"))
+    print(f"  {len(papers)} papers, {fresh} need AI processing")
 
     if ai_ready and papers:
         print("  Translating titles...")
@@ -210,8 +286,8 @@ def run_daily_push() -> dict:
 
     print("  Sending Feishu message...")
     if webhook:
-        push_text = generate_push_text(day_dir, hours=hours)
-        fr = send_feishu(webhook, push_text[:30000])
+        push_text = generate_push_text(day_dir, hours=hours, passed=passed, filtered=filtered)
+        fr = send_feishu_card(webhook, "📬 货币政策日报", push_text)
         result["steps"]["feishu"] = fr.get("ok", False)
         print(f"  Feishu: {fr.get('ok', False)}")
     else:
