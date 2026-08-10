@@ -12,3 +12,5 @@ outputs/*
 !src/daily_papers/crawlers/
 !src/daily_papers/crawlers/*.py
 !requirements.txt
+!docs/
+!docs/*.md
