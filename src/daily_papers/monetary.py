@@ -53,6 +53,7 @@ def _classify_batch(titles: list[str], abstracts: list[str]) -> list[dict]:
             ],
             temperature=0.1,
             max_tokens=2000,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         result = resp.choices[0].message.content.strip()
         result = result.strip("```json").strip("```").strip()

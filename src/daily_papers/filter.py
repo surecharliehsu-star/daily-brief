@@ -39,6 +39,11 @@ def get_ai_config() -> dict:
     return cfg.get("ai_scoring", {"enabled": False})
 
 
+def get_bot_config() -> dict:
+    cfg = _load_config()
+    return cfg.get("bot", {})
+
+
 def set_ai_config(**kwargs):
     cfg = _load_config()
     if "ai_scoring" not in cfg:

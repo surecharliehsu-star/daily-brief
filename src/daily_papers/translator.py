@@ -74,23 +74,42 @@ def _build_client() -> Optional[OpenAI]:
     )
 
 
-def _single_call(chunk: list[str], prompt: str, max_tokens: int) -> list[str]:
+def _call_model(messages: list[dict], temperature: float, max_tokens: int) -> str:
+    """调用模型，默认关闭推理链（否则长文本会被隐藏思维耗尽 token 预算）。"""
     client = _build_client()
-    if client is None:
-        return [""] * len(chunk)
-
-    text = "\n".join(f"{i+1}. {t}" for i, t in enumerate(chunk))
     resp = client.chat.completions.create(
         model=get_ai_config().get("model", "deepseek-v4-flash"),
-        messages=[
+        messages=messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+        extra_body={"thinking": {"type": "disabled"}},
+    )
+    content = resp.choices[0].message.content or ""
+    if not content.strip() and getattr(resp.choices[0].message, "reasoning_content", None):
+        # 极端兜底：若仍解析不出内容则回退温度的默认调用
+        resp = client.chat.completions.create(
+            model=get_ai_config().get("model", "deepseek-v4-flash"),
+            messages=messages,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+        content = resp.choices[0].message.content or ""
+    return content
+
+
+def _single_call(chunk: list[str], prompt: str, max_tokens: int) -> list[str]:
+    if not chunk:
+        return []
+    text = "\n".join(f"{i+1}. {t}" for i, t in enumerate(chunk))
+    content = _call_model(
+        [
             {"role": "system", "content": prompt},
             {"role": "user", "content": text},
         ],
         temperature=0.1,
         max_tokens=max_tokens,
     )
-    result = resp.choices[0].message.content.strip()
-    lines = [l.strip() for l in result.split("\n") if l.strip()]
+    lines = [l.strip() for l in content.split("\n") if l.strip()]
     translations = []
     for line in lines:
         line = line.lstrip("0123456789. ")
@@ -214,6 +233,15 @@ def translate_fulltext(text: str, chunk_size: int = 2000) -> str:
 
     if current:
         chunks.append("\n".join(current))
+
+    # 合并过小尾块（<300字符）避免碎片化翻译
+    merged: list[str] = []
+    for c in chunks:
+        if merged and len(c) < 300:
+            merged[-1] = merged[-1] + "\n" + c
+        else:
+            merged.append(c)
+    chunks = merged
 
     translated = []
     for c in chunks:

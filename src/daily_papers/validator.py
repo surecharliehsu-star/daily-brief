@@ -87,6 +87,7 @@ def _ai_audit(papers: list[dict]) -> tuple[list[dict], list[dict]]:
             messages=[{"role": "user", "content": prompt}],
             temperature=0,
             max_tokens=2000,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         content = resp.choices[0].message.content.strip()
         start = content.find("[")

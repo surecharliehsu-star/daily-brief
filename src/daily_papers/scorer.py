@@ -47,6 +47,7 @@ def score_paper(title: str, abstract: str, keywords: Optional[list[str]] = None)
             response_format={"type": "json_object"},
             temperature=0.1,
             max_tokens=500,
+            extra_body={"thinking": {"type": "disabled"}},
         )
         result = json.loads(resp.choices[0].message.content)
         return {
