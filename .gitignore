@@ -9,6 +9,8 @@ outputs/*
 !src/
 !src/daily_papers/
 !src/daily_papers/*.py
+!src/daily_papers/bot/
+!src/daily_papers/bot/*.py
 !src/daily_papers/crawlers/
 !src/daily_papers/crawlers/*.py
 !requirements.txt
