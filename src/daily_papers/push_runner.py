@@ -28,6 +28,19 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 OUTPUT_DIR = ROOT / "outputs"
 
 
+def _git_version() -> str:
+    try:
+        branch = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"], capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        commit = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5
+        ).stdout.strip()
+        return f"{branch} {commit}" if branch else commit
+    except Exception:
+        return "unknown"
+
+
 def _get_all_crawlers():
     return [
         BISCrawler, NBERCrawler, FedCrawler, ECDCrawler, BOECrawler,
@@ -193,7 +206,9 @@ def _push_to_knowledge_base(papers: list[dict]) -> dict:
 def run_daily_push() -> dict:
     config = _load_config()
     push_cfg = config.get("push", {})
-    webhook = push_cfg.get("feishu_webhook", "")
+    test_webhook = push_cfg.get("feishu_webhook_test", "")
+    webhook = test_webhook or push_cfg.get("feishu_webhook", "")
+    is_test = bool(test_webhook)
     hours = push_cfg.get("time_window_hours", 24)
     gitee_webhook = push_cfg.get("gitee_webhook", "")
     ai_cfg = get_ai_config()
@@ -202,7 +217,10 @@ def run_daily_push() -> dict:
 
     result = {"ok": True, "steps": {}, "total_papers": 0}
 
-    print(f"[{datetime.now().isoformat()}] Fetching papers...")
+    print(f"[{datetime.now().isoformat()}] version: {_git_version()}")
+
+    tag = f"{'【测试】' if is_test else ''}"
+    print(f"[{datetime.now().isoformat()}] Fetching papers... {'(TEST MODE)' if is_test else ''}")
     papers = _fetch_all()
     fetch_days = push_cfg.get("fetch_days", 30)
     papers = _filter_recent(papers, days=fetch_days)
@@ -287,7 +305,8 @@ def run_daily_push() -> dict:
     print("  Sending Feishu message...")
     if webhook:
         push_text = generate_push_text(day_dir, hours=hours, passed=passed, filtered=filtered)
-        fr = send_feishu_card(webhook, "📬 货币政策日报", push_text)
+        card_title = f"📬 货币政策日报{tag}" if is_test else "📬 货币政策日报"
+        fr = send_feishu_card(webhook, card_title, push_text)
         result["steps"]["feishu"] = fr.get("ok", False)
         print(f"  Feishu: {fr.get('ok', False)}")
     else:
