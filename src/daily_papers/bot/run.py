@@ -55,6 +55,11 @@ def run_real(bot_cfg: dict):
         allowlist=bot_cfg.get("allowed_approvers", []),
     )
 
+    async def _handle(payload: dict):
+        reply = await bot.handle_message(payload["chat_id"], payload["open_id"], payload["text"])
+        if reply:
+            await bot.sender.send(payload["chat_id"], reply)
+
     def on_message(data):
         event = data.event
         msg = event.message
@@ -69,7 +74,7 @@ def run_real(bot_cfg: dict):
         print(f"[EVENT] {payload['open_id']} in {payload['chat_id']}: {payload['text']!r}", flush=True)
         if not payload["text"].strip():
             return
-        asyncio.create_task(bot.handle_message(payload["chat_id"], payload["open_id"], payload["text"]))
+        asyncio.create_task(_handle(payload))
 
     handler = EventDispatcherHandler.builder("", "") \
         .register_p2_im_message_receive_v1(on_message) \
