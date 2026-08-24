@@ -17,7 +17,6 @@ from .scorer import score_papers
 from .report import generate_report
 from .translator import translate_titles
 from .monetary import classify_papers
-from .push import generate_push
 from .push_runner import run_daily_push
 
 ROOT = Path(__file__).resolve().parent.parent.parent

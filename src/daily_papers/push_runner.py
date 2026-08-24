@@ -36,9 +36,10 @@ def _get_all_crawlers():
     ]
 
 
-def _fetch_all() -> list[dict]:
+def _fetch_all(retry: bool = True) -> list[dict]:
     crawlers = _get_all_crawlers()
     all_papers = []
+    failed = []
     for Cls in crawlers:
         c = Cls()
         try:
@@ -46,7 +47,15 @@ def _fetch_all() -> list[dict]:
             all_papers.extend(p.to_dict() for p in papers)
             print(f"  [fetch] {c.source_name}: {len(papers)} papers")
         except Exception as e:
+            failed.append((c.source_name, str(e)))
             print(f"  [WARN] {c.source_name} fetch failed: {e}")
+
+    # 全源失败（多为瞬时网络/SSL 问题）时重试一轮，避免 0 篇空推送
+    if retry and failed and not all_papers:
+        print("  All sources failed, retrying once after 30s...")
+        import time
+        time.sleep(30)
+        return _fetch_all(retry=False)
     return all_papers
 
 
@@ -209,6 +218,12 @@ def run_daily_push() -> dict:
     papers = _normalize_missing_reason(papers)
     result["total_papers"] = len(papers)
     print(f"  Fetched {len(papers)} papers (within {fetch_days} days)")
+
+    if not papers:
+        result["ok"] = False
+        result["steps"]["fetch"] = "0 papers after retry, skip empty push"
+        print("  Aborted: 0 papers after retry, skip empty push")
+        return result
 
     print("  Merging cached AI results...")
     previous = _load_previous_results()
