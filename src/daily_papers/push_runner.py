@@ -4,10 +4,14 @@ Runs: fetch → translate → classify → generate HTML → git push → send F
 """
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
+
+os.environ.setdefault("NO_PROXY", "*")
+os.environ.setdefault("no_proxy", "*")
 
 from .filter import get_ai_config, _load_config
 from .translator import translate_titles, translate_abstracts
@@ -151,12 +155,29 @@ def _git_push(brief_path: Path) -> dict:
                  "GIT_COMMITTER_NAME": "daily-brief", "GIT_COMMITTER_EMAIL": "daily-brief@local"},
         )
 
+        # 显式指定部署密钥（不依赖 ~/.ssh/config），并逐个检查 remote 的返回码
+        ssh_key = os.environ.get(
+            "DAILY_BRIEF_SSH_KEY", os.path.expanduser("~/.ssh/id_ed25519_daily_brief")
+        )
+        git_env = {
+            **os.environ,
+            "GIT_SSH_COMMAND": f"ssh -i {ssh_key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new",
+        }
+        push_detail = {}
         for remote in ("origin", "github"):
-            subprocess.run(
+            proc = subprocess.run(
                 ["git", "push", remote, "master"],
-                cwd=ROOT, capture_output=True, text=True, timeout=120,
+                cwd=ROOT, capture_output=True, text=True, timeout=120, env=git_env,
             )
-        return {"ok": True, "message": "pushed"}
+            push_detail[remote] = {
+                "ok": proc.returncode == 0,
+                "returncode": proc.returncode,
+                "stderr": (proc.stderr or "").strip()[:300],
+            }
+        failed = [r for r, v in push_detail.items() if not v["ok"]]
+        if failed:
+            return {"ok": False, "error": f"push failed: {', '.join(failed)}", "detail": push_detail}
+        return {"ok": True, "message": "pushed", "detail": push_detail}
     except subprocess.TimeoutExpired:
         return {"ok": False, "error": "timeout"}
     except Exception as e:
@@ -266,6 +287,16 @@ def run_daily_push() -> dict:
         )
     result["steps"]["validation"] = {"passed": len(passed), "filtered": len(filtered)}
     print(f"  Passed: {len(passed)}, Filtered: {len(filtered)}")
+
+    if not passed:
+        result["ok"] = False
+        result["steps"]["validation"] = {
+            "passed": 0,
+            "filtered": len(filtered),
+            "reason": "0 papers passed validation, skip push",
+        }
+        print("  Aborted: 0 papers passed validation, skip push")
+        return result
 
     print("  Pushing to knowledge base...")
     kb_result = _push_to_knowledge_base(passed)
