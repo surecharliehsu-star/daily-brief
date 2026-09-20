@@ -139,19 +139,17 @@ def generate_html_brief(day_dir: Path | None = None, filtered_papers: list[dict]
     date_str = date_obj.strftime("%Y-%m-%d")
     gen_str = date_obj.strftime("%Y-%m-%d %H:%M")
 
-    src_count = len(set(p.get("source", "") for p in papers))
-    fmon = len(filtered_mon) if filtered_papers else 0
-    fother = len(filtered_other) if filtered_papers else 0
-    ftotal = fmon + fother
+    all_papers = papers + (filtered_papers or [])
+    all_mon = sum(1 for p in all_papers if p.get("is_monetary"))
+    src_count = len(set(p.get("source", "") for p in all_papers))
 
     html_content = HTML_TEMPLATE.format(
         date=date_str,
         total=len(papers),
         sources=src_count,
         mon_count=len(monetary),
-        ftotal=ftotal,
-        fmon=fmon,
-        fother=fother,
+        ftotal=len(all_papers),
+        fmon=all_mon,
         monetary_section=mon_section,
         others_section=others_section,
         filtered_section=filtered_section,
